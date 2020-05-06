@@ -157,14 +157,9 @@ def _convert_to_tensor(image,
     """
     image = cv2.cvtColor(image, code=cv2.COLOR_BGR2RGB)
 
-    x = image.astype(np.float32)
-    x = x / 255.0
-    x = (x - np.array(mean_rgb)) / np.array(std_rgb)
-
-    x = x.transpose(2, 0, 1)
+    x = image
     x = np.expand_dims(x, axis=0)
     x = mx.nd.array(x, ctx=ctx)
-
     return x
 
 
@@ -238,32 +233,6 @@ def _draw_mask_on_image(src_image, mask):
     dst_image_b = dst_image[:, :, 0]
     dst_image_b[mask > 127] = 255
     return dst_image
-
-
-def _calc_pts_from_heatmap(heatmap):
-    """
-    Calculate points and scores from heatmaps.
-
-    Parameters
-    ----------
-    heatmap : mx.nd.NDArray
-        Heatmaps with batch.
-
-    Returns
-    -------
-    pts : mx.nd.NDArray
-        Points & scores.
-    """
-    vector_dim = 2
-    in_size = heatmap.shape[2:]
-    heatmap_vector = heatmap.reshape((0, 0, -3))
-    indices = heatmap_vector.argmax(axis=vector_dim, keepdims=True)
-    scores = heatmap_vector.max(axis=vector_dim, keepdims=True)
-    scores_mask = (scores > 0.0)
-    pts_x = (indices % in_size[1]) * scores_mask
-    pts_y = (indices / in_size[1]).floor() * scores_mask
-    pts = mx.nd.concat(pts_x, pts_y, scores, dim=vector_dim)
-    return pts
 
 
 def cv_plot_keypoints(image,
@@ -368,12 +337,11 @@ def main():
             ctx=ctx)
 
         tic = time.time()
-        output = net(image3)
-        mask0 = (output[0, 0] > 0.5).asnumpy().astype(np.uint8) * 255
-        pts0 = _calc_pts_from_heatmap(output[:, 1:])
+        mask0, pts0 = net(image3)
         total_time += (time.time() - tic)
 
-        mask1, _ = _scale_image_linear(mask0, target_size=(720, 1280))
+        mask01 = (mask0[0, 0] > 0.5).asnumpy().astype(np.uint8) * 255
+        mask1, _ = _scale_image_linear(mask01, target_size=(720, 1280))
         mask2 = _smooth_mask_edges(mask1)
         mask3 = _expand_mask_central(mask2, target_size=(720, 1280))
         res_image0 = _draw_mask_on_image(src_image=frame_resized, mask=mask3)
