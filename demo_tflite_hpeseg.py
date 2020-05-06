@@ -1,5 +1,5 @@
 """
-    Script for demonstration of HPE-Seg task solving on a video (via pure MXNet).
+    Script for demonstration of HPE-Seg task solving on a video (via TFLite).
 """
 
 import os
@@ -7,7 +7,7 @@ import argparse
 import time
 import cv2
 import numpy as np
-import mxnet as mx
+import tensorflow as tf
 
 
 def parse_args():
@@ -20,7 +20,7 @@ def parse_args():
         Resulted args.
     """
     parser = argparse.ArgumentParser(
-        description="HPE-Seg on a video (via pure MXNet)",
+        description="HPE-Seg on a video (via TFLite)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
         "--in-video",
@@ -36,7 +36,7 @@ def parse_args():
         "--model",
         type=str,
         required=True,
-        help="path to MXNet model stem (path to common part of json/params files)")
+        help="path to TFLite model")
     parser.add_argument(
         "--use-gpus",
         type=int,
@@ -134,8 +134,7 @@ def _crop_image_centaral(image, target_size):
 
 def _convert_to_tensor(image,
                        mean_rgb,
-                       std_rgb,
-                       ctx):
+                       std_rgb):
     """
     Convert an image to MXNet tensor.
 
@@ -147,8 +146,6 @@ def _convert_to_tensor(image,
         Mean of RGB values.
     std_rgb : tuple of 3 float
         STD of RGB values.
-    ctx : mx.Context
-        The context of the tensor.
 
     Returns
     -------
@@ -161,10 +158,7 @@ def _convert_to_tensor(image,
     x = x / 255.0
     x = (x - np.array(mean_rgb)) / np.array(std_rgb)
 
-    x = x.transpose(2, 0, 1)
     x = np.expand_dims(x, axis=0)
-    x = mx.nd.array(x, ctx=ctx)
-
     return x
 
 
@@ -254,15 +248,18 @@ def _calc_pts_from_heatmap(heatmap):
     pts : mx.nd.NDArray
         Points & scores.
     """
+    heatmap = heatmap.transpose(0, 3, 1, 2)
     vector_dim = 2
+    batch = heatmap.shape[0]
+    channels = heatmap.shape[1]
     in_size = heatmap.shape[2:]
-    heatmap_vector = heatmap.reshape((0, 0, -3))
-    indices = heatmap_vector.argmax(axis=vector_dim, keepdims=True)
-    scores = heatmap_vector.max(axis=vector_dim, keepdims=True)
-    scores_mask = (scores > 0.0)
+    heatmap_vector = heatmap.reshape((batch, channels, -1))
+    indices = np.expand_dims(heatmap_vector.argmax(axis=vector_dim), axis=vector_dim).astype(np.float32)
+    scores = np.max(heatmap_vector, axis=vector_dim, keepdims=True)
+    scores_mask = (scores > 0.0).astype(np.float32)
     pts_x = (indices % in_size[1]) * scores_mask
-    pts_y = (indices / in_size[1]).floor() * scores_mask
-    pts = mx.nd.concat(pts_x, pts_y, scores, dim=vector_dim)
+    pts_y = (indices // in_size[1]) * scores_mask
+    pts = np.concatenate((pts_x, pts_y, scores), axis=vector_dim)
     return pts
 
 
@@ -332,14 +329,10 @@ def main():
         raise Exception("Input video doesn't exist: {}".format(in_video))
     assert os.path.isfile(in_video)
 
-    ctx = mx.gpu(0) if args.use_gpus == 1 else mx.cpu()
-
-    sym_file_path = args.model + "-symbol.json"
-    params_file_path = args.model + "-0000.params"
-    net = mx.gluon.SymbolBlock(
-        outputs=mx.sym.load(sym_file_path),
-        inputs=mx.sym.var("data", dtype=np.float32))
-    net.collect_params().load(params_file_path, ctx=ctx)
+    interpreter = tf.lite.Interpreter(model_path=args.model)
+    interpreter.allocate_tensors()
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
 
     total_time = 0
 
@@ -364,13 +357,16 @@ def main():
         image3 = _convert_to_tensor(
             image2,
             mean_rgb=args.mean_rgb,
-            std_rgb=args.std_rgb,
-            ctx=ctx)
+            std_rgb=args.std_rgb)
 
         tic = time.time()
-        output = net(image3)
-        mask0 = (output[0, 0] > 0.5).asnumpy().astype(np.uint8) * 255
-        pts0 = _calc_pts_from_heatmap(output[:, 1:])
+
+        interpreter.set_tensor(input_details[0]["index"], image3.astype(np.float32))
+        interpreter.invoke()
+        output = interpreter.get_tensor(output_details[0]["index"])
+
+        mask0 = (output[0, :, :, 0] > 0.5).astype(np.uint8) * 255
+        pts0 = _calc_pts_from_heatmap(output[:, :, :, 1:])
         total_time += (time.time() - tic)
 
         mask1, _ = _scale_image_linear(mask0, target_size=(720, 1280))
@@ -379,7 +375,7 @@ def main():
         res_image0 = _draw_mask_on_image(src_image=frame_resized, mask=mask3)
         res_image1 = cv_plot_keypoints(
             image=res_image0,
-            pts=pts0.asnumpy(),
+            pts=pts0,
             scale=(1.0 / scale_factor1),
             shift=shift_value,
             keypoint_thresh=0.3,
