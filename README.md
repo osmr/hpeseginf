@@ -14,6 +14,8 @@ Download model files form the repo releases.
 
 ```
 python3 demo_mx_hpeseg.py --in-video=<path_to_your_video> --out-video=<path_to_resulting_video> --model=<path_to_model_stem> 
+python3 demo_tlite_hpeseg.py --in-video=<path_to_your_video> --out-video=<path_to_resulting_video> --model=<path_to_tfl_model>
+python3 demo_onnx_hpeseg.py --in-video=<path_to_your_video> --out-video=<path_to_resulting_video> --model=<path_to_onnx_model>
 ```
 
 Example:
