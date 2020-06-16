@@ -313,8 +313,8 @@ def cv_plot_keypoints(image,
                 pt2 = (int(pts_i[jp[1], 0]) + shift[0], int(pts_i[jp[1], 1]) + shift[1])
                 cv2.line(image, pt1, pt2, cm_color, 3)
 
-    # cv2.imshow("image", image)
-    # cv2.waitKey(10)
+    cv2.imshow("image", image)
+    cv2.waitKey(10)
 
     return image
 
