@@ -199,12 +199,18 @@ def main():
 
         frame_resized = cv2.resize(frame, dsize=None, fx=frame_scale, fy=frame_scale, interpolation=cv2.INTER_AREA)
 
+        # face_rects = cascade.detectMultiScale(
+        #     frame_resized,
+        #     scaleFactor=1.1,
+        #     minNeighbors=4,
+        #     minSize=(100, 100),
+        #     maxSize=(200, 200))
         face_rects = cascade.detectMultiScale(
             frame_resized,
-            scaleFactor=1.1,
-            minNeighbors=4,
-            minSize=(100, 100),
-            maxSize=(200, 200))
+            scaleFactor=1.05,
+            minNeighbors=2,
+            minSize=(20, 20),
+            maxSize=(50, 50))
 
         frame_fg = frame.copy()
         frame_fg[fg_alpha > 127] = fg[fg_alpha > 127]
